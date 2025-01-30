@@ -29,6 +29,12 @@ class TRTLLMLayers(Enum):
     attention_qkv_bias = 'transformer.layers.attention.qkv.bias'
     attention_dense_weight = 'transformer.layers.attention.dense.weight'
     attention_dense_bias = 'transformer.layers.attention.dense.bias'
+    attention_q_down_weight = 'transformer.layers.attention.q_a.weight'
+    attention_q_up_weight = 'transformer.layers.attention.q_b_proj.weight'
+    attention_kv_down_weight = 'transformer.layers.attention.kv_a_proj_with_mqa.weight'
+    attention_kv_up_weight = 'transformer.layers.attention.kv_b_proj.weight'
+    attention_q_layernorm_weight = 'transformer.layers.attention.q_a_layernorm.weight'
+    attention_kv_layernorm_weight = 'transformer.layers.attention.kv_a_layernorm.weight'
 
     # mlp layers
     mlp_fc_weight = 'transformer.layers.mlp.fc.weight'
@@ -42,6 +48,7 @@ class TRTLLMLayers(Enum):
     mlp_router_weight = 'transformer.layers.mlp.router.weight'
     mlp_fc_weight_mixture_of_experts = 'transformer.layers.mlp.fc.weight.expert'
     mlp_projection_weight_mixture_of_experts = 'transformer.layers.mlp.proj.weight.expert'
+    mlp_share_expert_fc =  'transformer.layers.mlp.proj.weight.shared_experts'
 
     @staticmethod
     def return_layer_name_and_number(layer_name: str) -> Tuple[str, int]:

@@ -12,4 +12,5 @@ TRT_MODEL_CONFIG = {
     ModelType.llama: tensorrt_llm.models.llama.config.LLaMAConfig,
     ModelType.gemma: tensorrt_llm.models.GemmaConfig,
     ModelType.falcon: tensorrt_llm.models.falcon.config.FalconConfig,
+    ModelType.deepseek: tensorrt_llm.models.deepseek_v2.config.DeepSeekV2Config,
 }
