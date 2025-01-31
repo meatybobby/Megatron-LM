@@ -29,10 +29,9 @@ class TRTLLMLayers(Enum):
     attention_qkv_bias = 'transformer.layers.attention.qkv.bias'
     attention_dense_weight = 'transformer.layers.attention.dense.weight'
     attention_dense_bias = 'transformer.layers.attention.dense.bias'
-    attention_q_down_weight = 'transformer.layers.attention.q_a.weight'
-    attention_q_up_weight = 'transformer.layers.attention.q_b_proj.weight'
-    attention_kv_down_weight = 'transformer.layers.attention.kv_a_proj_with_mqa.weight'
-    attention_kv_up_weight = 'transformer.layers.attention.kv_b_proj.weight'
+    attention_fused_a_weight = 'transformer.layers.attention.fused_a.weight'
+    attention_q_up_weight = 'transformer.layers.attention.q_b_proj'
+    attention_kv_up_weight = 'transformer.layers.attention.kv_b_proj'
     attention_q_layernorm_weight = 'transformer.layers.attention.q_a_layernorm.weight'
     attention_kv_layernorm_weight = 'transformer.layers.attention.kv_a_layernorm.weight'
 
@@ -46,9 +45,11 @@ class TRTLLMLayers(Enum):
 
     # mixture of expert layers
     mlp_router_weight = 'transformer.layers.mlp.router.weight'
+    mlp_router_expert_bias = 'transformer.layers.mlp.e_score_correction_bias'
     mlp_fc_weight_mixture_of_experts = 'transformer.layers.mlp.fc.weight.expert'
     mlp_projection_weight_mixture_of_experts = 'transformer.layers.mlp.proj.weight.expert'
-    mlp_share_expert_fc =  'transformer.layers.mlp.proj.weight.shared_experts'
+    mlp_share_expert_fc = 'transformer.layers.mlp.shared_expert.fc.weight'
+    mlp_share_expert_proj =  'transformer.layers.mlp.shared_expert.proj.weight'
 
     @staticmethod
     def return_layer_name_and_number(layer_name: str) -> Tuple[str, int]:

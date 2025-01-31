@@ -14,12 +14,6 @@ DEFAULT_CONVERSION_DICT = {
     'decoder.layers.self_attention.linear_qkv.bias': TRTLLMLayers.attention_qkv_bias,
     'decoder.layers.self_attention.linear_proj.weight': TRTLLMLayers.attention_dense_weight,
     'decoder.layers.self_attention.linear_proj.bias': TRTLLMLayers.attention_dense_bias,
-    'decoder.layers.self_attention.linear_q_down_proj.weight': TRTLLMLayers.attention_q_down_weight,
-    'decoder.layers.self_attention.linear_q_up_proj.weight': TRTLLMLayers.attention_q_up_weight,
-    'decoder.layers.self_attention.linear_kv_down_proj.weight': TRTLLMLayers.attention_kv_down_weight,
-    'decoder.layers.self_attention.linear_kv_up_proj.weight': TRTLLMLayers.attention_kv_up_weight,
-    'decoder.layers.self_attention.q_layernorm.weight': TRTLLMLayers.attention_q_layernorm_weight,
-    'decoder.layers.self_attention.kv_layernorm.weight': TRTLLMLayers.attention_kv_layernorm_weight,
     # MLP
     'decoder.layers.pre_mlp_layernorm.weight': TRTLLMLayers.post_layernorm_weight,
     'decoder.layers.pre_mlp_layernorm.bias': TRTLLMLayers.post_layernorm_bias,
@@ -31,8 +25,6 @@ DEFAULT_CONVERSION_DICT = {
     'decoder.layers.mlp.experts.experts.linear_fc1.weight': TRTLLMLayers.mlp_fc_weight_mixture_of_experts,
     'decoder.layers.mlp.experts.experts.linear_fc2.weight': TRTLLMLayers.mlp_projection_weight_mixture_of_experts,
     'decoder.layers.mlp.router.weight': TRTLLMLayers.mlp_router_weight,
-    # SHARE EXPERTS
-    'decoder.layers.mlp.shared_experts.linear_fc2.weight'
     # FINAL LAYER NORM
     'decoder.final_layernorm.weight': TRTLLMLayers.final_layernorm_weight,
     'decoder.final_layernorm.bias': TRTLLMLayers.final_layernorm_bias,

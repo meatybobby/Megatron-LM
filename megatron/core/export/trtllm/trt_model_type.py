@@ -10,4 +10,5 @@ TRT_MODEL_TYPE_STRING = {
     ModelType.llama: 'LlamaForCausalLM',
     ModelType.gemma: 'GemmaForCausalLM',
     ModelType.falcon: 'FalconForCausalLM',
+    ModelType.deepseek: 'DeepseekV2ForCausalLM',
 }

@@ -25,7 +25,7 @@ from megatron.core.export.trtllm.trtllm_weights_converter.distributed_trtllm_mod
 from megatron.core.export.trtllm.trtllm_weights_converter.single_device_trtllm_model_weights_converter import (
     SingleDeviceTRTLLMModelWeightsConverter,
 )
-from megatron.core.transformer.transformer_config import TransformerConfig
+from megatron.core.transformer.transformer_config import TransformerConfig, MLATransformerConfig
 
 
 class TRTLLMHelper:
@@ -33,7 +33,7 @@ class TRTLLMHelper:
 
     def __init__(
         self,
-        transformer_config: TransformerConfig,
+        transformer_config: Union[TransformerConfig, MLATransformerConfig],
         model_type: ModelType,
         trtllm_conversion_dict: dict = {},
         position_embedding_type: str = 'learned_absolute',
@@ -46,6 +46,7 @@ class TRTLLMHelper:
         seq_len_interpolation_factor: float = None,
         moe_renorm_mode=None,
         share_embeddings_and_output_weights=False,
+        moe_router_score_function=None,
     ):
         """Constructor for the TRTLLMHelper
 
@@ -86,6 +87,7 @@ class TRTLLMHelper:
         self.activation = activation
         self.seq_len_interpolation_factor = seq_len_interpolation_factor
         self.moe_renorm_mode = moe_renorm_mode
+        self.moe_router_score_function = moe_router_score_function
         self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
         self.weights_converter = None
 
@@ -172,8 +174,45 @@ class TRTLLMHelper:
                 False if self.transformer_config.num_layers == 32 else True
             )
             config["parallel_attention"] = True
+        elif self.model_type == ModelType.deepseek:
+            config["rotary_scaling"] = {
+                "beta_fast": 32,
+                "beta_slow": 1,
+                "factor": self.transformer_config.rotary_scaling_factor,
+                "mscale": self.transformer_config.mscale,
+                "mscale_all_dim": self.transformer_config.mscale_all_dim,
+                "original_max_position_embeddings": 4096,
+                "type": "yarn"
+            }
+            moe_config = MoeConfig(
+                num_experts=config["moe_num_experts"],
+                shared_expert_intermediate_size=self.transformer_config.moe_shared_expert_intermediate_size,
+                top_k=config["moe_top_k"],
+                normalization_mode=MoeConfig.ExpertScaleNormalizationMode.DEVICE_LIMITED,
+                device_limited_n_group=8,
+                device_limited_topk_group=self.transformer_config.moe_router_topk_limited_devices,
+                device_limited_routed_scaling_factor=self.transformer_config.moe_router_topk_scaling_factor,
+                topk_method=MoeConfig.TopKMethod.NOAUX_TC,
+            )
+            moe_config.validate()
+            first_k_dense_replace = self.transformer_config.moe_layer_freq.count(0)
+            config.update(
+                {
+                    "moe": moe_config,
+                    "moe_inter_size": self.transformer_config.moe_ffn_hidden_size,
+                    "q_lora_rank": self.transformer_config.q_lora_rank,
+                    "kv_lora_rank": self.transformer_config.kv_lora_rank,
+                    "qk_nope_head_dim": self.transformer_config.qk_head_dim,
+                    "qk_rope_head_dim": self.transformer_config.qk_pos_emb_head_dim,
+                    "v_head_dim": self.transformer_config.v_head_dim,
+                    "topk_method": "noaux_tc",
+                    "first_k_dense_replace": first_k_dense_replace,
+                    "moe_layer_freq": 1,
+                    "coring_func": self.moe_router_score_function,
+                }
+            )
 
-        if self.seq_len_interpolation_factor is not None:
+        if self.model_type != ModelType.deepseek and self.seq_len_interpolation_factor is not None:
             config["rotary_scaling"] = {
                 "type": "linear",
                 "factor": float(self.seq_len_interpolation_factor),
@@ -474,12 +513,26 @@ class TRTLLMHelper:
         world_size = export_config.inference_tp_size * export_config.inference_pp_size
         gpus_per_node = gpus_per_node or export_config.inference_tp_size
 
+        if export_config.moe_tp_size == -1 and export_config.moe_ep_size == -1:
+            # moe default to tp-only
+            export_config.moe_tp_size = export_config.inference_tp_size
+            export_config.moe_ep_size = 1
+        elif export_config.moe_tp_size == -1:
+            export_config.moe_tp_size = export_config.inference_tp_size // export_config.moe_ep_size
+        elif export_config.moe_ep_size == -1:
+            export_config.moe_ep_size = export_config.inference_tp_size // export_config.moe_tp_size
+        assert (
+            export_config.moe_tp_size * export_config.moe_ep_size == export_config.inference_tp_size
+        ), "moe_tp_size * moe_ep_size must equal to tp_size"
+
         for gpu_rank in range(world_size):
             mapping = tensorrt_llm.Mapping(
                 world_size=world_size,
                 rank=gpu_rank,
                 tp_size=export_config.inference_tp_size,
                 pp_size=export_config.inference_pp_size,
+                moe_tp_size=export_config.moe_tp_size,
+                moe_ep_size=export_config.moe_ep_size,
             )
 
             # Important to create a new instance everytime so that the list elements have differnt rank values in the mapping object
