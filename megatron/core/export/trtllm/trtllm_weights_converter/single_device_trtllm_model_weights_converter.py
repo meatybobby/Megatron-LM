@@ -162,6 +162,7 @@ class SingleDeviceTRTLLMModelWeightsConverter:
             or layer_name.endswith(suffix(TRTLLMLayers.attention_fused_a_weight))
             or layer_name.endswith(suffix(TRTLLMLayers.attention_q_layernorm_weight))
             or layer_name.endswith(suffix(TRTLLMLayers.attention_kv_layernorm_weight))
+            or layer_name.endswith(suffix(TRTLLMLayers.mlp_router_expert_bias))
         ):
             # Same as layernorm1p in NeMo
             if (

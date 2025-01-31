@@ -185,9 +185,9 @@ class TRTLLMHelper:
                 "type": "yarn"
             }
             moe_config = MoeConfig(
-                num_experts=config["moe_num_experts"],
+                num_experts=config.pop("moe_num_experts"),
                 shared_expert_intermediate_size=self.transformer_config.moe_shared_expert_intermediate_size,
-                top_k=config["moe_top_k"],
+                top_k=config.pop("moe_top_k"),
                 normalization_mode=MoeConfig.ExpertScaleNormalizationMode.DEVICE_LIMITED,
                 device_limited_n_group=8,
                 device_limited_topk_group=self.transformer_config.moe_router_topk_limited_devices,
@@ -196,6 +196,7 @@ class TRTLLMHelper:
             )
             moe_config.validate()
             first_k_dense_replace = self.transformer_config.moe_layer_freq.count(0)
+            del config["moe_normalization_mode"], config["moe_tp_mode"]
             config.update(
                 {
                     "moe": moe_config,
