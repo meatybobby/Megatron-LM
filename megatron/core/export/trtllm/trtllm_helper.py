@@ -210,8 +210,10 @@ class TRTLLMHelper:
                     "first_k_dense_replace": first_k_dense_replace,
                     "moe_layer_freq": 1,
                     "coring_func": self.moe_router_score_function,
+                    "num_key_value_heads": 1,
                 }
             )
+            config["head_size"] = config["kv_lora_rank"] + config["qk_rope_head_dim"]
 
         if self.model_type != ModelType.deepseek and self.seq_len_interpolation_factor is not None:
             config["rotary_scaling"] = {
