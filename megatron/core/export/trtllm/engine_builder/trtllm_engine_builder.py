@@ -1,5 +1,9 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from multiprocessing import get_context
+import traceback
+
 import tensorrt_llm
 from tensorrt_llm._common import check_max_num_tokens
 from tensorrt_llm.builder import BuildConfig
@@ -9,6 +13,7 @@ from tensorrt_llm.lora_manager import LoraConfig
 from tensorrt_llm.models.modeling_utils import optimize_model, preprocess_weights
 from tensorrt_llm.plugin import PluginConfig
 
+import torch
 
 class TRTLLMEngineBuilder:
     """A utility class to build TRTLLM engine"""
@@ -120,7 +125,7 @@ class TRTLLMEngineBuilder:
             'max_prompt_embedding_table_size': max_prompt_embedding_table_size,
             'gather_context_logits': False,
             'gather_generation_logits': False,
-            'strongly_typed': False,
+            'strongly_typed': True,
             'builder_opt': None,
             'use_refit': use_refit,
             'multiple_profiles': multiple_profiles,
@@ -152,3 +157,33 @@ class TRTLLMEngineBuilder:
 
         engine.save(engine_dir)
         return engine
+
+    @staticmethod
+    def set_gpu_and_build(gpu_id, **kwargs):
+        torch.cuda.set_device(gpu_id)
+        TRTLLMEngineBuilder.build_and_save_engine(**kwargs)
+
+    @staticmethod
+    def parallel_build(trtllm_model_weights_list, trtllm_model_config_list, workers, **kwargs):
+        with ProcessPoolExecutor(mp_context=get_context('spawn'),
+                    max_workers=workers) as p:
+            futures = [
+                p.submit(
+                    TRTLLMEngineBuilder.set_gpu_and_build,
+                    gpu_id=trtllm_model_config.mapping.rank % workers,
+                    trtllm_model_weights=trtllm_model_weights,
+                    trtllm_model_config=trtllm_model_config,
+                    **kwargs
+                )
+                for trtllm_model_weights, trtllm_model_config in zip(
+                    trtllm_model_weights_list, trtllm_model_config_list)
+            ]
+            exceptions = []
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    traceback.print_exc()
+                    exceptions.append(e)
+            assert len(exceptions
+                    ) == 0, "Engine building failed, please check error log."

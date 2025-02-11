@@ -190,7 +190,9 @@ class TRTLLMHelper:
                 top_k=config.pop("moe_top_k"),
                 normalization_mode=MoeConfig.ExpertScaleNormalizationMode.DEVICE_LIMITED,
                 device_limited_n_group=8,
-                device_limited_topk_group=self.transformer_config.moe_router_topk_limited_devices,
+                device_limited_topk_group=(
+                    self.transformer_config.moe_router_topk_limited_devices or 4
+                ),
                 device_limited_routed_scaling_factor=self.transformer_config.moe_router_topk_scaling_factor,
                 topk_method=MoeConfig.TopKMethod.NOAUX_TC,
             )
@@ -211,6 +213,7 @@ class TRTLLMHelper:
                     "moe_layer_freq": 1,
                     "coring_func": self.moe_router_score_function,
                     "num_key_value_heads": 1,
+                    "fp8_format": False,
                 }
             )
             config["head_size"] = config["kv_lora_rank"] + config["qk_rope_head_dim"]

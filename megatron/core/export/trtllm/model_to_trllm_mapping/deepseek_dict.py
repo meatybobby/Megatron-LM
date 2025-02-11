@@ -16,8 +16,8 @@ DEEPSEEK_DICT = {
     'decoder.layers.self_attention.fused_a.weight': TRTLLMLayers.attention_fused_a_weight,
     'decoder.layers.self_attention.linear_q_up_proj.weight': TRTLLMLayers.attention_q_up_weight,
     'decoder.layers.self_attention.linear_kv_up_proj.weight': TRTLLMLayers.attention_kv_up_weight,
-    'decoder.layers.self_attention.q_layernorm.weight': TRTLLMLayers.attention_q_layernorm_weight,
-    'decoder.layers.self_attention.kv_layernorm.weight': TRTLLMLayers.attention_kv_layernorm_weight,
+    'decoder.layers.self_attention.linear_q_up_proj.layer_norm_weight': TRTLLMLayers.attention_q_layernorm_weight,
+    'decoder.layers.self_attention.linear_kv_up_proj.layer_norm_weight': TRTLLMLayers.attention_kv_layernorm_weight,
     # SHARE EXPERTS
     'decoder.layers.mlp.shared_experts.linear_fc1.weight': TRTLLMLayers.mlp_share_expert_fc,
     'decoder.layers.mlp.shared_experts.linear_fc2.weight': TRTLLMLayers.mlp_share_expert_proj,

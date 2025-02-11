@@ -97,6 +97,11 @@ class SingleDeviceTRTLLMModelWeightsConverter:
         """
         storage = self.storage_type
 
+        if storage == torch.bfloat16 and (
+            layer_name.endswith('e_score_correction_bias') or layer_name.endswith('mlp.router.weight')
+        ):
+            storage = torch.float32
+
         scale_key = '.'.join(layer_name.split('.')[:-1]) + '.weights_scaling_factor'
         if scale_key in self.scales and layer_name.endswith("weight"):
             storage = torch.float8_e4m3fn
@@ -304,18 +309,28 @@ class SingleDeviceTRTLLMModelWeightsConverter:
             qk_nope_head_dim = self.transformer_config.qk_head_dim
             v_head_dim = self.transformer_config.v_head_dim
             kv_lora_rank = self.transformer_config.kv_lora_rank
-            split_vals = torch.chunk(val, self.export_config.inference_tp_size, axis=1)
-            _add_to_trtllm_model_weights(val=split_vals, layer_name=layer_name, split_type='tensor_split')
+            val = val.T
+            tp_size = self.export_config.inference_tp_size
             kv_b_proj_weight = val.unflatten(
-                1,
+                0,
                 [num_heads,
                  qk_nope_head_dim + v_head_dim]
             )
-            k_nope_weight, _ = kv_b_proj_weight.split([qk_nope_head_dim, v_head_dim], dim=-1)
-            k_nope_weight_trans = k_nope_weight.reshape(num_heads * kv_lora_rank, qk_nope_head_dim).T
-            split_k_nopes = torch.chunk(k_nope_weight_trans, self.export_config.inference_tp_size, axis=1)
-            new_layer_name = layer_name.replace("kv_b_proj", "k_b_proj_trans")
-            _add_to_trtllm_model_weights(val=split_k_nopes, layer_name=new_layer_name, split_type='tensor_split')
+            k_nope_weight, v_weight = kv_b_proj_weight.split([qk_nope_head_dim, v_head_dim], dim=1)
+            k_nope_weight_trans = k_nope_weight.transpose(2, 1).reshape(
+                num_heads * kv_lora_rank, qk_nope_head_dim).T
+            k_nope_weight = k_nope_weight.reshape(num_heads * qk_nope_head_dim, kv_lora_rank).T
+            split_k_nope_weight = torch.chunk(k_nope_weight, tp_size, axis=1)
+            v_weight = v_weight.reshape(num_heads * v_head_dim, kv_lora_rank).T
+            split_v_weight = torch.chunk(v_weight, tp_size, axis=1)
+            split_kv_b = [
+                torch.concatenate(item, dim=1)
+                for item in zip(split_k_nope_weight, split_v_weight)
+            ]
+            _add_to_trtllm_model_weights(val=split_kv_b, layer_name=layer_name, split_type='tensor_split')
+            trans_layer_name = layer_name.replace("kv_b_proj", "k_b_proj_trans")
+            split_k_nopes_trans = torch.chunk(k_nope_weight_trans, tp_size, axis=1)
+            _add_to_trtllm_model_weights(val=split_k_nopes_trans, layer_name=trans_layer_name, split_type='tensor_split')
         elif layer_name.endswith(suffix(TRTLLMLayers.attention_q_up_weight)):
             split_vals = torch.chunk(val, self.export_config.inference_tp_size, axis=-1)
             _add_to_trtllm_model_weights(
