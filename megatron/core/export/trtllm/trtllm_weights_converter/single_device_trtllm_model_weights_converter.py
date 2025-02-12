@@ -1,6 +1,7 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
 
 import re
+import gc
 from typing import Optional
 
 import torch
@@ -407,10 +408,13 @@ class SingleDeviceTRTLLMModelWeightsConverter:
                     )
                     transformer_layers_dict[layer_name_with_layer_number] = value[layer_number]
 
-        for layer_name, value in tqdm(
-            transformer_layers_dict.items(), desc="Converting to TRTLLM Weights"
+        for layer_name in tqdm(
+            list(transformer_layers_dict.keys()), desc="Converting to TRTLLM Weights"
         ):
+            value = transformer_layers_dict.pop(layer_name)
             self._convert_transformer_layer(layer_name, value)
+            del value
+            gc.collect()
 
     def get_padded_vocab_size(self) -> int:
         """Return the paded vocab size
