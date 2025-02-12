@@ -316,7 +316,9 @@ class TRTLLMHelper:
         assert model_state_dict is not None, "Model state dict is not set"
 
         scales = self._load_scaling_factors(model_state_dict) if fp8_quantized else {}
-        model_state_dict = {k: v for k, v in model_state_dict.items() if 'extra_state' not in k}
+        for k in list(model_state_dict.keys()):
+            if 'extra_state' in k:
+                model_state_dict.pop(k)
 
         if on_device_distributed_conversion:
             assert vocab_size is not None, "Need to pass in vocab_size for on device"
