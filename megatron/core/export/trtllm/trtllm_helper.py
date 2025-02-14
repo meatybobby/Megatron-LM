@@ -217,6 +217,8 @@ class TRTLLMHelper:
                 }
             )
             config["head_size"] = config["kv_lora_rank"] + config["qk_rope_head_dim"]
+            if fp8_quantized:
+                config["quantization"]["quant_algo"] = "FP8_CURRENT_SCALING"
 
         if self.model_type != ModelType.deepseek and self.seq_len_interpolation_factor is not None:
             config["rotary_scaling"] = {
@@ -315,7 +317,9 @@ class TRTLLMHelper:
         """
         assert model_state_dict is not None, "Model state dict is not set"
 
-        scales = self._load_scaling_factors(model_state_dict) if fp8_quantized else {}
+        scales = self._load_scaling_factors(model_state_dict) if (
+            fp8_quantized and self.model_type != ModelType.deepseek
+        ) else {}
         for k in list(model_state_dict.keys()):
             if 'extra_state' in k:
                 model_state_dict.pop(k)
@@ -507,6 +511,7 @@ class TRTLLMHelper:
             activation=self.activation,
             multi_query_mode=self.multi_query_mode,
             scales=scales,
+            weight_only_fp8_quantization=fp8_quantized and self.model_type == ModelType.deepseek
         )
         # Convert the input model state dict to trtllm model weights dictionary
         self.weights_converter.convert(

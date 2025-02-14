@@ -12,6 +12,7 @@ from megatron.core.export.export_config import ExportConfig
 from megatron.core.export.trtllm.trtllm_layers import NON_TRANSFORMER_LAYERS_NAMES, TRTLLMLayers
 from megatron.core.export.trtllm.trtllm_layers import get_layer_name_without_prefix as suffix
 from megatron.core.transformer.transformer_config import TransformerConfig
+from .quantize import fp8_quatization_by_tensor
 
 
 # pylint: disable=line-too-long
@@ -42,6 +43,7 @@ class SingleDeviceTRTLLMModelWeightsConverter:
         multi_query_mode: bool = False,
         activation: str = "gelu",
         scales: Optional[dict] = None,
+        weight_only_fp8_quantization: bool = False,
     ):
         """Constructor for the TRTLLMModelWeightsConverterCPU class
 
@@ -71,6 +73,7 @@ class SingleDeviceTRTLLMModelWeightsConverter:
             else:
                 num_kv_heads = self.transformer_config.num_attention_heads
         self.num_kv_heads = num_kv_heads
+        self.weight_only_fp8_quantization = weight_only_fp8_quantization
 
     def _convert_non_transformer_layer(self, model_state_dict: dict, layer_name: str):
         """Convert Non Transformer layers to TRTLLM weights
@@ -98,8 +101,9 @@ class SingleDeviceTRTLLMModelWeightsConverter:
         """
         storage = self.storage_type
 
-        if storage == torch.bfloat16 and (
-            layer_name.endswith('e_score_correction_bias') or layer_name.endswith('mlp.router.weight')
+        if (
+            layer_name.endswith('e_score_correction_bias')
+            or layer_name.endswith('mlp.router.weight')
         ):
             storage = torch.float32
 
@@ -416,6 +420,9 @@ class SingleDeviceTRTLLMModelWeightsConverter:
             del value
             gc.collect()
 
+        if self.weight_only_fp8_quantization:
+            self.quantize_weight()
+
     def get_padded_vocab_size(self) -> int:
         """Return the paded vocab size
 
@@ -461,7 +468,7 @@ class SingleDeviceTRTLLMModelWeightsConverter:
 
             # Happens in the case of TP split or expert split
             if layer_name.endswith(".bin"):
-                if layer_name.endswith(f"{mapping.tp_rank}.bin"):
+                if layer_name.endswith(f".{mapping.tp_rank}.bin"):
                     layer_name = layer_name.replace(f".{mapping.tp_rank}.bin", "")
                 else:
                     continue
@@ -524,3 +531,33 @@ class SingleDeviceTRTLLMModelWeightsConverter:
                 trtllm_model_weights_per_gpu[TRTLLMLayers.final_layernorm_bias.value] = ln_f_bias
 
         return trtllm_model_weights_per_gpu
+
+    def quantize_weight(self):
+        for key in tqdm(
+            list(self.trtllm_model_weights.keys()), desc="Quantizing TRTLLM Weights to FP8"
+        ):
+            if (
+                'attention.dense' in key
+                or 'mlp.fc' in key
+                or 'mlp.proj' in key
+                or 'mlp.gate' in key
+                or 'shared_expert.fc' in key
+                or 'shared_expert.proj' in key
+                or 'fused_a' in key
+            ):
+                value = self.trtllm_model_weights[key]
+                value, scale = fp8_quatization_by_tensor(value)
+                scale_key = key.replace('weight', 'weights_scaling_factor')
+                self.trtllm_model_weights[key] = value
+                self.trtllm_model_weights[scale_key] = scale
+            elif (
+                'q_b_proj' in key
+                or 'kv_b_proj' in key
+                or 'k_b_proj_trans' in key
+            ):
+                value = self.trtllm_model_weights[key]
+                value, scale = fp8_quatization_by_tensor(value)
+                replaced_key = key.split('.')[-3]
+                scale_key = key.replace(replaced_key, replaced_key + '_scale')
+                self.trtllm_model_weights[key] = value
+                self.trtllm_model_weights[scale_key] = scale
