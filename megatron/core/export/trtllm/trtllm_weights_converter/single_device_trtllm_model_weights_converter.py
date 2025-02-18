@@ -499,9 +499,6 @@ class SingleDeviceTRTLLMModelWeightsConverter:
             del value
             gc.collect()
 
-        # if self.weight_only_fp8_quantization:
-        #     self.quantize_weight()
-
     def get_padded_vocab_size(self) -> int:
         """Return the paded vocab size
 
@@ -610,27 +607,3 @@ class SingleDeviceTRTLLMModelWeightsConverter:
                 trtllm_model_weights_per_gpu[TRTLLMLayers.final_layernorm_bias.value] = ln_f_bias
 
         return trtllm_model_weights_per_gpu
-
-    # def quantize_weight(self):
-    #     for key in tqdm(
-    #         list(self.trtllm_model_weights.keys()), desc="Quantizing TRTLLM Weights to FP8"
-    #     ):
-    #         if (
-
-    #         ):
-    #             value = self.trtllm_model_weights[key]
-    #             value, scale = fp8_quatization_by_tensor(value)
-    #             scale_key = key.replace('weight', 'weights_scaling_factor')
-    #             self.trtllm_model_weights[key] = value
-    #             self.trtllm_model_weights[scale_key] = scale
-    #         elif (
-    #             'q_b_proj' in key
-    #             or 'kv_b_proj' in key
-    #             or 'k_b_proj_trans' in key
-    #         ):
-    #             value = self.trtllm_model_weights[key]
-    #             value, scale = fp8_quatization_by_tensor(value)
-    #             replaced_key = key.split('.')[-3]
-    #             scale_key = key.replace(replaced_key, replaced_key + '_scale')
-    #             self.trtllm_model_weights[key] = value
-    #             self.trtllm_model_weights[scale_key] = scale
