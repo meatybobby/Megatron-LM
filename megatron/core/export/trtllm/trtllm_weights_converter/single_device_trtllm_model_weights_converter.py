@@ -104,8 +104,23 @@ class SingleDeviceTRTLLMModelWeightsConverter:
         if (
             layer_name.endswith('e_score_correction_bias')
             or layer_name.endswith('mlp.router.weight')
+            or layer_name.endswith('_scale')
+            or layer_name.endswith('weights_scaling_factor')
         ):
             storage = torch.float32
+        elif self.weight_only_fp8_quantization and (
+            layer_name.endswith('attention.dense.weight')
+            or layer_name.endswith('mlp.fc.weight')
+            or layer_name.endswith('mlp.proj.weight')
+            or layer_name.endswith('mlp.gate.weight')
+            or layer_name.endswith('shared_expert.fc.weight')
+            or layer_name.endswith('shared_expert.proj.weight')
+            or layer_name.endswith('fused_a.weight')
+            or layer_name.endswith('q_b_proj')
+            or layer_name.endswith('kv_b_proj')
+            or layer_name.endswith('k_b_proj_trans')
+        ):
+            storage = torch.float8_e4m3fn
 
         scale_key = '.'.join(layer_name.split('.')[:-1]) + '.weights_scaling_factor'
         if scale_key in self.scales and layer_name.endswith("weight"):
@@ -157,6 +172,19 @@ class SingleDeviceTRTLLMModelWeightsConverter:
                     self._cast_value(val, layer_name).detach().contiguous()
                 )
 
+        def _quantize_and_add_scale_to_weight(value, scale_name, split_axis, split_type):
+            value, scale= fp8_quatization_by_tensor(value)
+            if split_type is None:
+                split_vals = scale
+            else:
+                split_vals = torch.chunk(
+                    scale, self.export_config.inference_tp_size, axis=split_axis
+                )
+            _add_to_trtllm_model_weights(
+                val=split_vals, layer_name=scale_name, split_type=split_type
+            )
+            return value
+
         if val.ndim == 2:
             val = val.T
 
@@ -182,6 +210,11 @@ class SingleDeviceTRTLLMModelWeightsConverter:
             ):
                 val = val + 1.0
 
+            if self.weight_only_fp8_quantization and layer_name.endswith('fused_a.weight'):
+                scale_name = layer_name.replace('weight', 'weights_scaling_factor')
+                val = _quantize_and_add_scale_to_weight(
+                    val, scale_name, split_axis=None, split_type=None
+                )
             _add_to_trtllm_model_weights(val=val, layer_name=layer_name, split_type=None)
 
         elif (
@@ -189,6 +222,11 @@ class SingleDeviceTRTLLMModelWeightsConverter:
             or layer_name.endswith(suffix(TRTLLMLayers.mlp_projection_weight))
             or layer_name.endswith(suffix(TRTLLMLayers.mlp_share_expert_proj))
         ):
+            if self.weight_only_fp8_quantization:
+                scale_name = layer_name.replace('weight', 'weights_scaling_factor')
+                val = _quantize_and_add_scale_to_weight(
+                    val, scale_name, split_axis=0, split_type='tensor_split'
+                )
             split_vals = torch.chunk(val, self.export_config.inference_tp_size, axis=0)
             _add_to_trtllm_model_weights(
                 val=split_vals, layer_name=layer_name, split_type='tensor_split'
@@ -206,11 +244,21 @@ class SingleDeviceTRTLLMModelWeightsConverter:
             if split_gated_activation:
                 val, gate = torch.chunk(val, 2, axis=-1)
                 gate_layer_name = layer_name.replace("fc", "gate")
+                if self.weight_only_fp8_quantization:
+                    scale_name = gate_layer_name.replace('weight', 'weights_scaling_factor')
+                    gate = _quantize_and_add_scale_to_weight(
+                        gate, scale_name, split_axis=-1, split_type='tensor_split'
+                    )
                 split_vals = torch.chunk(gate, self.export_config.inference_tp_size, axis=-1)
                 _add_to_trtllm_model_weights(
                     val=split_vals, layer_name=gate_layer_name, split_type='tensor_split'
                 )
 
+            if self.weight_only_fp8_quantization:
+                scale_name = layer_name.replace('weight', 'weights_scaling_factor')
+                val = _quantize_and_add_scale_to_weight(
+                    val, scale_name, split_axis=-1, split_type='tensor_split'
+                )
             split_vals = torch.chunk(val, self.export_config.inference_tp_size, axis=-1)
             _add_to_trtllm_model_weights(
                 val=split_vals, layer_name=layer_name, split_type='tensor_split'
@@ -299,13 +347,25 @@ class SingleDeviceTRTLLMModelWeightsConverter:
 
             split_vals = [torch.concatenate(item, dim=1) for item in zip(split_w3s, split_w1s)]
             layer_name = layer_name.replace(".expert", "")  # Remove suffix .expert from key
+            if self.weight_only_fp8_quantization:
+                scale_name = layer_name.replace('weight', 'weights_scaling_factor')
+                val = torch.concatenate(split_vals, dim=1)
+                val = _quantize_and_add_scale_to_weight(
+                    val, scale_name, split_axis=1, split_type='expert_split'
+                )
+                split_vals = torch.chunk(val, self.export_config.inference_tp_size, axis=1)
             _add_to_trtllm_model_weights(
                 val=split_vals, layer_name=layer_name, split_type='expert_split'
             )
 
-        elif  layer_name.endswith(suffix(TRTLLMLayers.mlp_projection_weight_mixture_of_experts)):
-            split_vals = torch.chunk(val, self.export_config.inference_tp_size, axis=-1)
+        elif layer_name.endswith(suffix(TRTLLMLayers.mlp_projection_weight_mixture_of_experts)):
             layer_name = layer_name.replace(".expert", "")  # Remove suffix .expert from key
+            if self.weight_only_fp8_quantization:
+                scale_name = layer_name.replace('weight', 'weights_scaling_factor')
+                val = _quantize_and_add_scale_to_weight(
+                    val, scale_name, split_axis=-1, split_type='expert_split'
+                )
+            split_vals = torch.chunk(val, self.export_config.inference_tp_size, axis=-1)
             _add_to_trtllm_model_weights(
                 val=split_vals, layer_name=layer_name, split_type='expert_split'
             )
@@ -332,11 +392,30 @@ class SingleDeviceTRTLLMModelWeightsConverter:
                 torch.concatenate(item, dim=1)
                 for item in zip(split_k_nope_weight, split_v_weight)
             ]
+
+            if self.weight_only_fp8_quantization:
+                val = torch.concatenate(split_kv_b, dim=1)
+                scale_name = layer_name + '_scale'
+                val = _quantize_and_add_scale_to_weight(
+                    val, scale_name, split_axis=1, split_type='tensor_split'
+                )
+                split_kv_b = torch.chunk(val, tp_size, axis=1)
+
+                scale_name = layer_name.replace("kv_b_proj", "k_b_proj_trans_scale")
+                k_nope_weight_trans = _quantize_and_add_scale_to_weight(
+                    k_nope_weight_trans, scale_name, split_axis=1, split_type='tensor_split'
+                )
+
             _add_to_trtllm_model_weights(val=split_kv_b, layer_name=layer_name, split_type='tensor_split')
             trans_layer_name = layer_name.replace("kv_b_proj", "k_b_proj_trans")
             split_k_nopes_trans = torch.chunk(k_nope_weight_trans, tp_size, axis=1)
             _add_to_trtllm_model_weights(val=split_k_nopes_trans, layer_name=trans_layer_name, split_type='tensor_split')
         elif layer_name.endswith(suffix(TRTLLMLayers.attention_q_up_weight)):
+            if self.weight_only_fp8_quantization:
+                scale_name = layer_name + '_scale'
+                val = _quantize_and_add_scale_to_weight(
+                    val, scale_name, split_axis=-1, split_type='tensor_split'
+                )
             split_vals = torch.chunk(val, self.export_config.inference_tp_size, axis=-1)
             _add_to_trtllm_model_weights(
                 val=split_vals, layer_name=layer_name, split_type='tensor_split'
@@ -420,8 +499,8 @@ class SingleDeviceTRTLLMModelWeightsConverter:
             del value
             gc.collect()
 
-        if self.weight_only_fp8_quantization:
-            self.quantize_weight()
+        # if self.weight_only_fp8_quantization:
+        #     self.quantize_weight()
 
     def get_padded_vocab_size(self) -> int:
         """Return the paded vocab size
@@ -532,32 +611,26 @@ class SingleDeviceTRTLLMModelWeightsConverter:
 
         return trtllm_model_weights_per_gpu
 
-    def quantize_weight(self):
-        for key in tqdm(
-            list(self.trtllm_model_weights.keys()), desc="Quantizing TRTLLM Weights to FP8"
-        ):
-            if (
-                'attention.dense' in key
-                or 'mlp.fc' in key
-                or 'mlp.proj' in key
-                or 'mlp.gate' in key
-                or 'shared_expert.fc' in key
-                or 'shared_expert.proj' in key
-                or 'fused_a' in key
-            ):
-                value = self.trtllm_model_weights[key]
-                value, scale = fp8_quatization_by_tensor(value)
-                scale_key = key.replace('weight', 'weights_scaling_factor')
-                self.trtllm_model_weights[key] = value
-                self.trtllm_model_weights[scale_key] = scale
-            elif (
-                'q_b_proj' in key
-                or 'kv_b_proj' in key
-                or 'k_b_proj_trans' in key
-            ):
-                value = self.trtllm_model_weights[key]
-                value, scale = fp8_quatization_by_tensor(value)
-                replaced_key = key.split('.')[-3]
-                scale_key = key.replace(replaced_key, replaced_key + '_scale')
-                self.trtllm_model_weights[key] = value
-                self.trtllm_model_weights[scale_key] = scale
+    # def quantize_weight(self):
+    #     for key in tqdm(
+    #         list(self.trtllm_model_weights.keys()), desc="Quantizing TRTLLM Weights to FP8"
+    #     ):
+    #         if (
+
+    #         ):
+    #             value = self.trtllm_model_weights[key]
+    #             value, scale = fp8_quatization_by_tensor(value)
+    #             scale_key = key.replace('weight', 'weights_scaling_factor')
+    #             self.trtllm_model_weights[key] = value
+    #             self.trtllm_model_weights[scale_key] = scale
+    #         elif (
+    #             'q_b_proj' in key
+    #             or 'kv_b_proj' in key
+    #             or 'k_b_proj_trans' in key
+    #         ):
+    #             value = self.trtllm_model_weights[key]
+    #             value, scale = fp8_quatization_by_tensor(value)
+    #             replaced_key = key.split('.')[-3]
+    #             scale_key = key.replace(replaced_key, replaced_key + '_scale')
+    #             self.trtllm_model_weights[key] = value
+    #             self.trtllm_model_weights[scale_key] = scale
